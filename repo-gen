@@ -58,7 +58,7 @@ function leerinfo {
 [ "$1" = "-h" ] && sintaxis
 [ "$1" = "--help" ] && sintaxis
 
-DIR=$(dirname $(realpath $0))
+DIR=$(pwd)
 [ $# -gt 0 ] && DIR=$1
 NOMREPO=$(basename $DIR)
 [ $# -gt 1 ] && NOMREPO=$2
@@ -81,11 +81,14 @@ FILTRO="grep -v -E -e '^\..+\.info' -e '$RFF' -e '^index\.html'"
 echo $HTMLINI > $HTMLFIC
 echo > $REPOFIC
 ls -1 | eval $FILTRO | while read f ; do
-  [ -d "$f" ] && TIPO=d || TIPO=f
-  MD5=$(md5sum "$f" | cut -d\  -f 1)
-  leerinfo "$f"
-  echo "<tr><td>$CAT<td>$MD5<td><a href=\"$f\">$f</a><td>$VER<td>$DES</tr>" >> $HTMLFIC
-  echo "$TIPO:$MD5:$f:$VER:$DES:$CAT" >> $REPOFIC
-  echo "added $f"
+  [ -d "$f" ] && TIPO=d 
+  if [ -f "$f" ] ; then
+     TIPO=d
+     MD5=$(md5sum "$f" | cut -d\  -f 1)
+     leerinfo "$f"
+     echo "<tr><td>$CAT<td>$MD5<td><a href=\"$f\">$f</a><td>$VER<td>$DES</tr>" >> $HTMLFIC
+     echo "$TIPO:$MD5:$f:$VER:$DES:$CAT" >> $REPOFIC
+     echo "added $f"
+  fi
 done
 echo $HTMLFIN >> $HTMLFIC
