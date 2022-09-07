@@ -83,7 +83,7 @@ echo > $REPOFIC
 ls -1 | eval $FILTRO | while read f ; do
   [ -d "$f" ] && TIPO=d 
   if [ -f "$f" ] ; then
-     TIPO=d
+     TIPO=f
      MD5=$(md5sum "$f" | cut -d\  -f 1)
      leerinfo "$f"
      echo "<tr><td>$CAT<td>$MD5<td><a href=\"$f\">$f</a><td>$VER<td>$DES</tr>" >> $HTMLFIC
