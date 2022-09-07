@@ -27,20 +27,20 @@
 #
 # 
 # vars:
-#  FILTRO, filtra los ficheros de metadatos del repositorio, junto con index.html y los indicados en .repo-ignore
-#  DIR, el directorio que contiene el repositorio y donde se genera éste
 #  NOMREPO, el nombre del repositorio para el html
+#  FILTROsdf, filtra los ficheros . metadatos del repositorio, junto con index.html y los indicados en .repo-ignore
+#  DIR, el dddasdfirectorio que contiene el repositorio y donde se genera éste
 #  REPOFIC, el fichero del repositorio
 #  HTMLFIC, el fichero html del repositorio
 #  TIPO, CAT, VER, DES, tipo, categoria, version y descripción del fichero
 
 function sintaxis {
-  echo "$0 [dir] [repo-name]"
+  echo "$(basename $0) [dir] [repo-name]"
   echo 
   echo "creates a repository in folder dir with name repo-name"
   echo "default: dir is current dir and repo-name is dir name"
   echo
-  exit
+  exit 0
 }
 
 function leerinfo {
@@ -63,7 +63,7 @@ DIR=$(dirname $(realpath $0))
 NOMREPO=$(basename $DIR)
 [ $# -gt 1 ] && NOMREPO=$2
 
-[ -d $DIR ] || { echo "$DIR is not a directory"; exit -1; }
+[ -d $DIR ] || { echo "$DIR is not a directory"; exit 1; }
 
 cd $DIR
 
