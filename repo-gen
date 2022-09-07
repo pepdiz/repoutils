@@ -2,12 +2,20 @@
 # autor: Pep Diz
 # licencia: GPL v2
 #
+# genera un repositorio, un fichero que contiene un listado de ficheros del repositorio agrupados por categorias
+# actualmente se espera que el listado consista en modulos porteus (ficheros .mdz)
+#
 # consideraciones:
 # - no se guarda el contenido de los directorios, solo su nombre
 # - cada fichero puede tener asociado un fichero oculto .info con metadatos
 #     ej, el fichero arduino.zip puede tener un .arduino.zip.info
+#	el fichero .info puede definir las variables CAT, DES, VER (categoria, descripcion y version)
+#	el fichero .info puede definir otras variables que NO aparecen en el repositorio
 # - el repositorio se guarda en un fichero de nombre .repo
-
+# - se añaden todos los ficheros existentes, salvo los filtrados 
+#	(es responsabilidad del usuario que solo haya modulos en el directorio o que se filtren los no deseados) 
+#       (otra opcion sería que solo se incluyesen los modulos, pero de esta manera es más flexible)
+#
 # repofic:
 #  tipo:md5:nombre:version:descripcion:categoria
 # tipo = d (directorio) | f (fichero)  [ uso futuro, hoy todos deberian ser f]
@@ -26,20 +34,6 @@
 #  HTMLFIC, el fichero html del repositorio
 #  TIPO, CAT, VER, DES, tipo, categoria, version y descripción del fichero
 
-DIR=$(basename $(dirname $(realpath $0)))
-[ $# -gt 0 ] && DIR=$1
-NOMREPO=$DIR
-[ $# -gt 1 ] && NOMREPO=$2
-
-HTMLFIC=index.html
-HTMLINI="<html><head></head><body><h1>$NOMREPO Porteus repository</h1><table><tr><th>category<th>md5<th>name<th>version<th>description</tr>"
-HTMLFIN="</table></body></html>"
-
-REPOFIC=.repo
-FILTROFIC=.repo-ignore
-RFF="^$(echo $REPOFIC | sed -e 's/\./\\\./g')"
-FILTRO="grep -v -E -e '^\..+\.info' -e '$RFF' -e '^index\.html'"
-
 function sintaxis {
   echo "$0 [dir] [repo-name]"
   echo 
@@ -54,11 +48,34 @@ function leerinfo {
   DES=''
   CAT='' 
   VER=$(echo ${f#*.} | grep '^[0-9]\+\(\.[0-9]\+\)\?\(\.[0-9]\+\)\?$')
-  [ -f .$f.info ] && . .$f.info
+  if [ -s .$f.info ] ; then
+ 	DES=$(grep '^DES=\(.\+\)' $f.info | cut -d= -f 2)
+ 	CAT=$(grep '^CAT=\(.\+\)' $f.info | cut -d= -f 2)
+ 	VER=$(grep '^VER=\(.\+\)' $f.info | cut -d= -f 2)
+  fi
 }
 
 [ "$1" = "-h" ] && sintaxis
 [ "$1" = "--help" ] && sintaxis
+
+DIR=$(dirname $(realpath $0))
+[ $# -gt 0 ] && DIR=$1
+NOMREPO=$(basename $DIR)
+[ $# -gt 1 ] && NOMREPO=$2
+
+[ -d $DIR ] || { echo "$DIR is not a directory"; exit -1; }
+
+cd $DIR
+
+HTMLFIC=index.html
+HTMLINI="<html><head></head><body><h1>$NOMREPO Porteus repository</h1><table><tr><th>category<th>md5<th>name<th>version<th>description</tr>"
+HTMLFIN="</table></body></html>"
+
+REPOFIC=.repo
+FILTROFIC=.repo-ignore
+RFF="^$(echo $REPOFIC | sed -e 's/\./\\\./g')"
+FILTRO="grep -v -E -e '^\..+\.info' -e '$RFF' -e '^index\.html'"
+
 
 [ -f $FILTROFIC ] && FILTRO="$FILTRO | grep -E -v -f $FILTROFIC"
 echo $HTMLINI > $HTMLFIC
