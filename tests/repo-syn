@@ -1,0 +1,71 @@
+setup () {
+  export REPOFILE=.repo
+  export DIR=$(mktemp -d)
+  export WEBSERVER_PATH=/drives/c/PROGRA~2/newlisp
+#  /drives/c/Program\ Files\ \(x86\)/newlisp/newlisp.exe -p 8084 -http -w ../PR/ &
+}
+
+teardown () {
+  [ -d $DIR ] && rm -rf $DIR
+}
+
+test_not_resolved_dependencies_fail_with_exit_code_2 () {
+# si no esta instalado wget ni curl sale con status code 2
+  fake which false
+  assert_status_code 2 "../repo-syn url "
+}
+
+test_h_or_help_or_nothing_show_syntax () {
+  OUT='repo-syn repo-url [dir]
+
+synchronize a remote repository (repo-url) with a local one in folder dir
+default: dir is current dir'
+
+  assert_equals "$OUT"  "$(../repo-syn -h)"
+  assert_equals "$OUT"  "$(../repo-syn --help)"
+  assert_equals "$OUT"  "$(../repo-syn)"
+}
+
+test_h_or_help_or_nothing_exit_with_success () {
+  assert_status_code 0 ../repo-syn -h 
+  assert_status_code 0 ../repo-syn --help 
+  assert_status_code 0 ../repo-syn
+}
+
+todo_other_flags_exit_with_error () {
+  fail "not implemented"
+}
+
+test_dir_passed_is_invalid_dir () {
+  NODIR=./non_existent_dir
+  assert_equals "$NODIR is not a directory" "$(../repo-syn url $NODIR)"
+}
+
+test_invalid_dir_should_fail_with_code_1 () {
+  NODIR=./non_existent_dir
+  assert_status_code 1 "../repo-syn url $NODIR"
+}
+
+test_non_passing_dir_uses_current_dir () {
+  $WEBSERVER_PATH/newlisp.exe -p 8084 -http -w ../PR/ &
+  CURDIR=$(pwd)
+  cd $DIR
+  $CURDIR/../repo-syn http://localhost:8084
+  cd $PWD
+  assert_status_code 0 "test -f $DIR/$REPOFILE"  
+}
+
+test_invalid_url_fail_with_code_3 () {
+  assert_status_code 3 "../repo-syn url"
+}
+
+test_valid_url_downloads_repofile () {
+  $WEBSERVER_PATH/newlisp.exe -p 8084 -http -w ../PR/ &
+  ../repo-syn http://localhost:8084 $DIR
+  assert_status_code 0 "test -f $DIR/$REPOFILE"
+}
+
+test_read_all_files_in_repofile () {
+  $WEBSERVER_PATH/newlisp.exe -p 8084 -c -http -w ../PR/ &
+  assert_equals "*** tipo f md5 4ef2a01cf19d0534e34d0a6159af04f3 nombre README.md ver  desc  cat " "$(../repo-syn http://localhost:8084 $DIR)"
+}

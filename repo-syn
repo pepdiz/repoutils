@@ -1,0 +1,235 @@
+#!/bin/bash
+# autor: Pep Diz
+# licencia: GPL v2
+#
+# sincroniza un repositorio remoto con uno local
+# un repositorio es un fichero que contiene un listado de ficheros del repositorio agrupados por categorias
+# actualmente se espera que el listado consista en modulos porteus (ficheros .mdz)
+#
+# la sincronización se realiza en un solo sentido, siempre desde el remoto que se considera el master
+# al final de la sincronización el repositorio local es una copia del remoto
+#
+# los ficheros existentes en local que no estén en el repositorio remoto se respetan (no se borran ni cambian)
+#
+# notas:
+# - no se rescriben directorios, solo ficheros (ej. si en remoto hay un dir DIR y en local hay un fichero DIR, prevalece el local)
+# - dos ficheros se consideran iguales si tienen el mismo nombre y la misma md5sum
+# - cada fichero puede tener asociado un fichero oculto .info con metadatos del tipo key=value
+#     ej, el fichero mymodule-1.0.mdz puede tener un .mymodule-1.0.mdz.info
+#	el fichero .info puede definir las variables CAT, DES, VER (categoria, descripcion y version)
+#	el fichero .info puede definir otras variables que NO aparecen en el repositorio
+# - el repositorio se guarda en un fichero de nombre .repo
+#
+# Actualmente:
+# - se ignoran los directorios, solo se procesan ficheros
+#
+# repofic:
+#  tipo:md5:nombre:version:descripcion:categoria
+# tipo = d (directorio) | f (fichero)  [ uso futuro, hoy todos deberian ser f]
+# md5 = md5sum (fichero)
+# nombre = nombre del fichero completo con extensión (sin path)
+# version = la version del fichero (si existe), se lee del propio nombre de fichero o del .fichero.info
+# descripcion = una breve descripcion, se lee del .fichero.info (si existe)
+# categoria = clasificion de ficheros (opcional), se lee de .fichero.info
+#
+# casuistica:
+# - remote FILE not exist in LOCAL	=>  COPY
+# - remote DIR not exist in LOCAL	=>  CREATE   (actually do nothing since only using files, not dirs)
+# - remote FILE exist in LOCAL 
+#	- remote file = local file	=>  COPY (rewrite)
+#	- remote file = local dir	=>  NOTHING  (no action)
+# - remote DIR exist in LOCAL 
+#	- remote dir = local dir	=>  NOTHING  (no action), since dir already exists, content will be written recursively
+#	- remote dir = local file	=>  DIR_COPY (delete local file & create local dir)
+# 
+# vars:
+#  NOMREPO, el nombre del repositorio para el html
+#  FILTROsdf, filtra los ficheros . metadatos del repositorio, junto con index.html y los indicados en .repo-ignore
+#  DIR, el directorio que destiono de los ficheros del repositorio
+#  REPOFIC, el fichero del repositorio
+#  TIPO, CAT, VER, DES, tipo, categoria, version y descripción del fichero
+
+# errores:
+RERR_BAD_DIR=1
+RERR_BAD_DEP=2
+RERR_BAD_URL=3
+RERR_BAD_NAME=4
+RERR_BAD_TYPE=5
+RERR_BAD_SUM=6
+RERR_BAD_DL=7
+
+
+# mensajes:
+RMSG_BAD_DIR="$DIR is not a directory"
+RMSG_BAD_DEP="wget or curl is required" 
+RMSG_BAD_URL="invalid url $URL"
+RMSG_BAD_NAME="invalid name $nombre"
+RMSG_BAD_TYPE="invalid type $tipo"
+RMSG_BAD_SUM="invalid sum $md5"
+RMSG_BAD_DL="error downloading $rnom"
+
+
+function sintaxis {
+  echo "$(basename $0) repo-url [dir]"
+  echo 
+  echo "synchronize a remote repository (repo-url) with a local one in folder dir"
+  echo "default: dir is current dir"
+  echo
+  exit 0
+}
+
+function exit_err {
+  echo "$1"
+  echo
+  exit $2
+}
+
+function es_dir () { return [ "$1" = "d" ] }
+function es_fic () { return [ "$1" = "f" ] }
+
+
+function procesar_fic () {
+# procesa un fichero remoto dejando el local exactamente igual
+# return
+#	0	ok
+#	1	error
+#	2	bad md5sum
+#	3	download problem
+#
+  local rnom=$1		# remote name
+  local rmd5=$2		# remote sum
+  local ret=0
+  local lfic=$(mktemp)
+# - remote FILE not exist in LOCAL	=>  COPY
+# - remote FILE exist in LOCAL 
+#	- remote file = local file	=>  COPY (rewrite)
+#	- remote file = local dir	=>  NOTHING  (no action)
+# exit_err $RMSG_BAD_DL $RMSG_BAD_DL
+
+  # solo es necesario descargar un fichero inexistente localmente o diferente del remoto
+  # comprobar si el fichero existe y es igual al remoto
+  if [ -f "$rnom" ] && [ "$rmd5" = "$(md5sum "$rnom" | cut -d\  -f 1)" ] && return 0  # nothing to do, skip file
+
+  # el fichero no exite en local o su md5sum es diferente
+
+  $GET -o $lfic $URL/$rnom || return 3
+  if [ "$rmd5" = "$(md5sum "$lfic" | cut -d\  -f 1)" ] ; then
+
+	  if [ -e $rnom ] ; then
+		if [ -f $rnom ] ; then
+		  mv $rnom ${rnom}.bak && mv $lfic $rnom
+		  ret=$?
+		  [ "$ret" -eq 0 -a -f ${rnom}.bak ] && rm -f ${rnom}.bak
+		fi
+	  else
+		mv $lfic $rnom
+		ret=$?
+	  fi
+  else
+    ret=2
+    [ -f $lfic ] && rm $lfic
+  fi
+  return $ret
+}
+
+function leerinfo {
+# info files are key=value files 
+# any key=value is allowed but must be one line only
+# only keys DES, CAT and VER are used for repofile
+  local f=$1
+  local DES=''
+  local CAT='' 
+  local VER=''
+  local FVER=$(echo ${f#*.} | grep '^[0-9]\+\(\.[0-9]\+\)\?\(\.[0-9]\+\)\?$')
+  if [ -s .$f.info ] ; then
+ 	DES=$(grep '^DES=\(.\+\)' $f.info | cut -d= -f 2)
+ 	CAT=$(grep '^CAT=\(.\+\)' $f.info | cut -d= -f 2)
+ 	VER=$(grep '^VER=\(.\+\)' $f.info | cut -d= -f 2)
+  fi
+  VER=${VER:-$FVER}
+}
+
+[ "$1" = "-h" ] && sintaxis
+[ "$1" = "--help" ] && sintaxis
+[ $# -eq 0 ] && sintaxis
+
+if GET=$(which wget) ; then
+  GET="$GET -q"
+else 
+  if GET=$(which curl) ; then
+    :
+  else
+    exit_err $RMSG_BAD_DEP $RERR_BAD_DEP
+  fi
+fi
+
+URL=$1
+DIR=$(pwd)
+[ $# -gt 1 ] && DIR=$2
+
+[ -d $DIR ] || exit_err $RMSG_BAD_DIR $RERR_BAD_DIR
+
+cd $DIR
+
+TOTALREPO=0
+TOTALPROC=0
+TOTALPDTE=0
+
+REPOFIC=.repo
+FILTROFIC=.repo-ignore
+# translate dot name to valid regexp
+RFF="^$(echo $REPOFIC | sed -e 's/\./\\\./g')"
+# filter .info files and REPOFIC by default (.info files are expect to be .<filename>.info)
+# another option is to rely in .repo-ignore (pre loaded with filter to index.html and .info)
+# it may be better if people want .info to be in repo but index.html never should be in repo, .info is arguable
+FILTRO="grep -v -E -e '^\..+\.info' -e '$RFF' -e '^index\.html'"
+
+# a file to log pendant files that need a retry
+PDTE=$REPOFIC.pdte
+
+# backup existing repofile	(simply backup name because only last copy is preserved, another option is to include date in backup name)
+[ -f $REPOFIC ] && cp -f $REPOFIC ${REPOFIC}.bak
+
+# get repofile
+$GET $URL/$REPOFIC  || exit_err $RMSG_BAD_URL $RERR_BAD_URL
+
+TOTALREPO=$(wc -l < $REPOFIC)
+
+grep '^[fd].*' $REPOFIC | while read L ; do
+#  tipo:md5:nombre:version:descripcion:categoria
+  tipo=$(echo $L | cut -d: -f 1)
+  md5=$(echo $L | cut -d: -f 2)
+  nombre=$(echo $L | cut -d: -f 3)
+  version=$(echo $L | cut -d: -f 4)
+  descripcion=$(echo $L | cut -d: -f 5)
+  categoria=$(echo $L | cut -d: -f 6)
+
+  [ "$tipo" = "" ] && exit_err $RMSG_BAD_TYPE $RERR_BAD_TYPE
+  [ "$nombre" = "" ] && exit_err $RMSG_BAD_NAME $RERR_BAD_NAME
+  [ "$md5" = "" ] && exit_err $RMSG_BAD_SUM $RERR_BAD_SUM
+
+  if es_fic "$tipo" ; then
+
+    if procesar_fic $nombre $md5 ; then
+      TOTALPROC=$(( TOTALPROC++ ))
+    else
+      echo $L >> $PDTE
+      TOTALPDTE=$(( TOTALPDTE++ ))
+    fi
+
+  else
+    # no se procesan los directorios
+    continue
+  fi
+
+  echo "*** tipo $tipo md5 $md5 nombre $nombre ver $version desc $descripcion cat $categoria"		# debug
+  
+done
+
+echo "$TOTALPROC files procesed of $TOTALREPO in repository"
+[ "$TOTALPROC" -lt "$TOTALREPO" ] && echo "$TOTALPDTE pendent files to sync"
+[ "$TOTALPDTE" -gt 0 ] && echo "trying to sync pendent files"
+
+exit
+
+
